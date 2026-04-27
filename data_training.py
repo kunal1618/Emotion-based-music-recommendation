@@ -50,7 +50,7 @@ for i in cnt:
 	counter = counter + 1
 
 
-ip = Input(shape=(X.shape[1]))
+ip = Input(shape=(X.shape[1],))
 
 m = Dense(512, activation="relu")(ip)
 m = Dense(256, activation="relu")(m)

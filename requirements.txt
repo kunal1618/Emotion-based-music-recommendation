@@ -1,0 +1,10 @@
+# Python 3.10 or 3.11 required (mediapipe + tensorflow do NOT support 3.13/3.14 yet)
+
+streamlit==1.32.2
+streamlit-webrtc==0.47.7
+av==12.3.0
+opencv-python==4.9.0.80
+numpy==1.26.4
+mediapipe==0.10.14
+tensorflow==2.15.0
+protobuf==4.25.3

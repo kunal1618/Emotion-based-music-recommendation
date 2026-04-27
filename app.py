@@ -5,7 +5,6 @@ import cv2
 import numpy as np
 import mediapipe as mp
 from keras.models import load_model
-import webbrowser
 
 # ---------------------------
 # Load Model and Labels
@@ -34,7 +33,7 @@ if "emotion" not in st.session_state:
 # Load last emotion if exists
 try:
     st.session_state["emotion"] = np.load("emotion.npy")[0]
-except:
+except (FileNotFoundError, IndexError):
     st.session_state["emotion"] = ""
 
 # ---------------------------
@@ -78,7 +77,7 @@ class EmotionProcessor:
                 lst.extend([0.0]*42)
 
             lst = np.array(lst).reshape(1, -1)
-            pred = label[np.argmax(model.predict(lst))]
+            pred = label[np.argmax(model.predict(lst, verbose=0))]
 
             cv2.putText(frm, pred, (50, 50), cv2.FONT_ITALIC, 1, (255, 0, 0), 2)
             st.session_state["emotion"] = pred
@@ -141,11 +140,11 @@ if btn:
         st.session_state["run"] = True
     else:
         query = f"{lang} {st.session_state['emotion']} song {singer}"
+        url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
         st.success(f"🔎 Searching on YouTube for: **{query}**")
-        webbrowser.open(f"https://www.youtube.com/results?search_query={query}")
+        st.markdown(f"[▶️ Open results on YouTube]({url})")
 
         # Reset emotion and restart webcam automatically
         np.save("emotion.npy", np.array([""]))
         st.session_state["emotion"] = ""
         st.session_state["run"] = True
-        # No rerun needed! Streamlit will refresh components automatically
