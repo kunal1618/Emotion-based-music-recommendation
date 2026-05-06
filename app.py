@@ -5,48 +5,363 @@ import cv2
 import numpy as np
 import mediapipe as mp
 from keras.models import load_model
+from urllib.parse import quote_plus
 
-# ---------------------------
-# Load Model and Labels
-# ---------------------------
-model = load_model("model.h5")
-label = np.load("labels.npy")
 
+st.set_page_config(
+    page_title="etunes",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+
+@st.cache_resource
+def load_assets():
+    return load_model("model.h5"), np.load("labels.npy")
+
+
+@st.cache_resource
+def load_holistic():
+    return mp.solutions.holistic.Holistic()
+
+
+model, label = load_assets()
+holis = load_holistic()
 holistic = mp.solutions.holistic
 hands = mp.solutions.hands
-holis = holistic.Holistic()
 drawing = mp.solutions.drawing_utils
 
-# ---------------------------
-# Streamlit App Header
-# ---------------------------
-st.title("🎵 Emotion Based Music Recommender")
 
-# ---------------------------
-# Initialize session state
-# ---------------------------
-if "run" not in st.session_state:
-    st.session_state["run"] = True  # True = webcam runs
+MOOD_COLORS = {
+    "happy":     ("#fef3c7", "#92400e"),
+    "sad":       ("#dbeafe", "#1e40af"),
+    "angry":     ("#fee2e2", "#991b1b"),
+    "neutral":   ("#e7e5e4", "#44403c"),
+    "surprise":  ("#fce7f3", "#9d174d"),
+    "rock":      ("#ede9fe", "#5b21b6"),
+    "melancholy":("#dbeafe", "#1e40af"),
+    "calm":      ("#d1fae5", "#065f46"),
+    "energetic": ("#ffedd5", "#9a3412"),
+    "romantic":  ("#fce7f3", "#9d174d"),
+    "focused":   ("#ede9fe", "#5b21b6"),
+}
+
+
+st.markdown(
+    """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500;600&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    color: #2a2a2a;
+}
+
+.stApp {
+    background:
+        radial-gradient(at 8% 8%,  rgba(196, 181, 245, 0.55) 0%, transparent 35%),
+        radial-gradient(at 92% 6%, rgba(255, 213, 184, 0.55) 0%, transparent 35%),
+        radial-gradient(at 50% 45%, rgba(255, 230, 245, 0.35) 0%, transparent 55%),
+        radial-gradient(at 12% 92%, rgba(255, 200, 220, 0.50) 0%, transparent 35%),
+        radial-gradient(at 92% 92%, rgba(196, 230, 210, 0.50) 0%, transparent 35%),
+        #fdfaf5;
+    background-attachment: fixed;
+}
+
+#MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
+
+.block-container {
+    padding-top: 2.5rem;
+    padding-bottom: 5rem;
+    max-width: 720px;
+}
+
+.wordmark {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    font-size: 1.1rem;
+    color: #2a2a2a;
+    letter-spacing: -0.01em;
+    margin-bottom: 2.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.wordmark .dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #a574f0, #c97cf2);
+    display: inline-block;
+}
+
+.badge {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 999px;
+    padding: 0.4rem 0.95rem;
+    font-size: 0.78rem;
+    color: #5a5a5a;
+    margin-bottom: 1.25rem;
+    font-weight: 400;
+}
+
+.hero {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    font-size: 3.2rem;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    color: #1f1f1f;
+    margin: 0 0 1.25rem 0;
+    text-align: center;
+}
+
+.hero em {
+    font-style: italic;
+    font-weight: 400;
+    color: #9b6fe8;
+}
+
+.subtitle {
+    font-size: 1rem;
+    color: #6e6e6e;
+    line-height: 1.55;
+    text-align: center;
+    max-width: 460px;
+    margin: 0 auto 2.5rem auto;
+}
+
+.section-label {
+    font-size: 0.7rem;
+    color: #9b6fe8;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-weight: 600;
+    text-align: center;
+    margin: 2.5rem 0 0.75rem 0;
+}
+
+.section-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.8rem;
+    font-weight: 500;
+    text-align: center;
+    color: #1f1f1f;
+    margin: 0 0 2rem 0;
+    letter-spacing: -0.02em;
+}
+
+[data-testid="stIFrame"] {
+    display: flex !important;
+    justify-content: center !important;
+    margin: 1rem 0 0.5rem 0;
+}
+
+[data-testid="stIFrame"] iframe,
+section.main iframe[title*="webrtc"],
+section.main iframe[title*="streamlit"] {
+    width: 360px !important;
+    height: 360px !important;
+    border-radius: 50% !important;
+    clip-path: circle(48% at 50% 50%);
+    box-shadow:
+        0 25px 60px -15px rgba(155, 111, 232, 0.35),
+        0 0 0 1px rgba(255, 255, 255, 0.6);
+    background: linear-gradient(135deg, #e9defc 0%, #fce4d6 100%);
+}
+
+.cam-hint {
+    text-align: center;
+    color: #8a8a8a;
+    font-size: 0.82rem;
+    margin: 0.75rem 0 2rem 0;
+}
+
+.stTextInput > div > div > input {
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(6px);
+    border-radius: 10px;
+    padding: 0.7rem 0.95rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.95rem;
+    color: #1f1f1f;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stTextInput > div > div > input:focus {
+    border-color: #9b6fe8;
+    box-shadow: 0 0 0 3px rgba(155, 111, 232, 0.15);
+}
+
+.stTextInput label {
+    font-size: 0.72rem !important;
+    color: #6e6e6e !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase;
+}
+
+.stButton > button {
+    background: linear-gradient(135deg, #9b6fe8 0%, #b07ef0 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 999px;
+    padding: 0.85rem 1.6rem;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+    width: 100%;
+    transition: all 0.2s ease;
+    box-shadow: 0 8px 20px -6px rgba(155, 111, 232, 0.45);
+    margin-top: 1rem;
+}
+
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px -6px rgba(155, 111, 232, 0.55);
+    background: linear-gradient(135deg, #8a5ee0 0%, #a06ee8 100%);
+    color: #ffffff;
+}
+
+.stButton > button:focus {
+    box-shadow: 0 8px 20px -6px rgba(155, 111, 232, 0.45);
+    outline: none;
+}
+
+.mood-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0 0.5rem 0;
+    text-align: center;
+}
+
+.mood-card .label {
+    font-size: 0.7rem;
+    color: #9a9a9a;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.mood-pill {
+    display: inline-block;
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.15rem;
+    font-weight: 500;
+    text-transform: lowercase;
+    letter-spacing: -0.01em;
+}
+
+.mood-pill.pending {
+    background: #f0ede7;
+    color: #b0aca5;
+    font-style: italic;
+}
+
+.result {
+    margin-top: 1.25rem;
+    padding: 1.25rem 1.5rem;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(155, 111, 232, 0.2);
+    border-radius: 16px;
+    text-align: center;
+}
+
+.result .query {
+    color: #5a5a5a;
+    font-size: 0.9rem;
+    margin-bottom: 0.6rem;
+}
+
+.result .query strong {
+    color: #1f1f1f;
+    font-weight: 500;
+}
+
+.result a {
+    display: inline-block;
+    color: #9b6fe8;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.95rem;
+    border-bottom: 1px solid #9b6fe8;
+    padding-bottom: 1px;
+}
+
+.result a:hover {
+    color: #7c4ed4;
+    border-bottom-color: #7c4ed4;
+}
+
+.stAlert {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border: 1px solid rgba(155, 111, 232, 0.2) !important;
+    border-left: 3px solid #9b6fe8 !important;
+    border-radius: 10px !important;
+    color: #1f1f1f !important;
+    font-size: 0.9rem !important;
+}
+
+.footer {
+    text-align: center;
+    color: #a0a0a0;
+    font-size: 0.78rem;
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.footer .brand {
+    font-family: 'Fraunces', Georgia, serif;
+    color: #6e6e6e;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
 if "emotion" not in st.session_state:
-    st.session_state["emotion"] = ""
+    try:
+        st.session_state["emotion"] = str(np.load("emotion.npy")[0])
+    except (FileNotFoundError, IndexError):
+        st.session_state["emotion"] = ""
 
-# Load last emotion if exists
-try:
-    st.session_state["emotion"] = np.load("emotion.npy")[0]
-except (FileNotFoundError, IndexError):
-    st.session_state["emotion"] = ""
 
-# ---------------------------
-# Sidebar Inputs
-# ---------------------------
-st.sidebar.header("🎧 Music Preferences")
-lang = st.sidebar.text_input("Language")
-singer = st.sidebar.text_input("Singer")
-st.sidebar.markdown("**Instructions:** Capture your emotion using the webcam, then click 'Recommend me songs'.")
+st.markdown(
+    '<div class="wordmark"><span class="dot"></span>etunes</div>',
+    unsafe_allow_html=True,
+)
 
-# ---------------------------
-# Emotion Processor
-# ---------------------------
+st.markdown(
+    '<div style="text-align:center;"><span class="badge">Music that meets you where you are</span></div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<h1 class="hero">Songs for <em>every</em> shade of feeling.</h1>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<p class="subtitle">etunes reads your expression in real time and hands you a song tuned to your mood — opened straight on YouTube.</p>',
+    unsafe_allow_html=True,
+)
+
+
 class EmotionProcessor:
     def recv(self, frame):
         frm = frame.to_ndarray(format="bgr24")
@@ -54,97 +369,113 @@ class EmotionProcessor:
         res = holis.process(cv2.cvtColor(frm, cv2.COLOR_BGR2RGB))
 
         lst = []
-
         if res.face_landmarks:
             for i in res.face_landmarks.landmark:
                 lst.append(i.x - res.face_landmarks.landmark[1].x)
                 lst.append(i.y - res.face_landmarks.landmark[1].y)
 
-            # Left hand
             if res.left_hand_landmarks:
                 for i in res.left_hand_landmarks.landmark:
                     lst.append(i.x - res.left_hand_landmarks.landmark[8].x)
                     lst.append(i.y - res.left_hand_landmarks.landmark[8].y)
             else:
-                lst.extend([0.0]*42)
+                lst.extend([0.0] * 42)
 
-            # Right hand
             if res.right_hand_landmarks:
                 for i in res.right_hand_landmarks.landmark:
                     lst.append(i.x - res.right_hand_landmarks.landmark[8].x)
                     lst.append(i.y - res.right_hand_landmarks.landmark[8].y)
             else:
-                lst.extend([0.0]*42)
+                lst.extend([0.0] * 42)
 
             lst = np.array(lst).reshape(1, -1)
-            pred = label[np.argmax(model.predict(lst, verbose=0))]
-
-            cv2.putText(frm, pred, (50, 50), cv2.FONT_ITALIC, 1, (255, 0, 0), 2)
-            st.session_state["emotion"] = pred
+            pred = str(label[np.argmax(model.predict(lst, verbose=0))])
             np.save("emotion.npy", np.array([pred]))
 
-        # Draw landmarks
-        drawing.draw_landmarks(frm, res.face_landmarks, holistic.FACEMESH_TESSELATION,
-                               landmark_drawing_spec=drawing.DrawingSpec(color=(0, 0, 255), thickness=-1, circle_radius=1),
-                               connection_drawing_spec=drawing.DrawingSpec(thickness=1))
+        drawing.draw_landmarks(
+            frm,
+            res.face_landmarks,
+            holistic.FACEMESH_TESSELATION,
+            landmark_drawing_spec=drawing.DrawingSpec(color=(255, 255, 255), thickness=-1, circle_radius=1),
+            connection_drawing_spec=drawing.DrawingSpec(color=(200, 180, 240), thickness=1),
+        )
         drawing.draw_landmarks(frm, res.left_hand_landmarks, hands.HAND_CONNECTIONS)
         drawing.draw_landmarks(frm, res.right_hand_landmarks, hands.HAND_CONNECTIONS)
 
         return av.VideoFrame.from_ndarray(frm, format="bgr24")
 
-# ---------------------------
-# Display Webcam Feed
-# ---------------------------
-if lang and singer and st.session_state["run"]:
-    st.subheader("📷 Live Emotion Capture")
-    webrtc_streamer(
-        key="key",
-        desired_playing_state=True,
-        video_processor_factory=EmotionProcessor,
-        media_stream_constraints={"video": True, "audio": False}
-    )
 
-# ---------------------------
-# Display Detected Emotion & Emoji
-# ---------------------------
-emotion_colors = {
-    "Happy": "#FFD700",
-    "Sad": "#1E90FF",
-    "Angry": "#FF4500",
-    "Neutral": "#90EE90"
-}
+st.markdown('<div class="section-label">Live demo</div>', unsafe_allow_html=True)
+st.markdown('<h2 class="section-title">Let your face choose the song</h2>', unsafe_allow_html=True)
 
-emotion_emoji = {
-    "Happy": "😄",
-    "Sad": "😢",
-    "Angry": "😠",
-    "Neutral": "😐"
-}
+webrtc_streamer(
+    key="etunes-cam",
+    desired_playing_state=True,
+    video_processor_factory=EmotionProcessor,
+    media_stream_constraints={"video": True, "audio": False},
+)
 
-if st.session_state["emotion"]:
+st.markdown(
+    '<p class="cam-hint">Your camera stays on your device. Nothing is uploaded.</p>',
+    unsafe_allow_html=True,
+)
+
+
+try:
+    latest = str(np.load("emotion.npy")[0])
+    if latest:
+        st.session_state["emotion"] = latest
+except (FileNotFoundError, IndexError):
+    pass
+
+
+current = st.session_state["emotion"].strip().lower()
+if current:
+    bg, fg = MOOD_COLORS.get(current, ("#ede9fe", "#5b21b6"))
     st.markdown(
-        f"<div style='background-color: {emotion_colors.get(st.session_state['emotion'],'#FFFFFF')}; "
-        f"padding:20px; border-radius:10px; text-align:center; font-size:24px; color:black;'>"
-        f"Detected Emotion: {st.session_state['emotion']} {emotion_emoji.get(st.session_state['emotion'],'')}</div>",
-        unsafe_allow_html=True
+        f'<div class="mood-card">'
+        f'<div class="label">Detected mood</div>'
+        f'<span class="mood-pill" style="background:{bg};color:{fg};">{current}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<div class="mood-card">'
+        '<div class="label">Detected mood</div>'
+        '<span class="mood-pill pending">awaiting capture</span>'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
-# ---------------------------
-# Recommend Button
-# ---------------------------
-btn = st.button("🎧 Recommend me songs", help="Click after your emotion is captured")
 
-if btn:
+col1, col2 = st.columns(2)
+with col1:
+    lang = st.text_input("Language", placeholder="English, Hindi, Tamil…")
+with col2:
+    singer = st.text_input("Artist", placeholder="Arijit Singh, Adele…")
+
+
+if st.button("Read my mood and recommend"):
     if not st.session_state["emotion"]:
-        st.warning("⚠️ Please let me capture your emotion first")
-        st.session_state["run"] = True
+        st.warning("No mood captured yet. Hold the camera for a moment until your mood appears above.")
+    elif not lang or not singer:
+        st.warning("Please add both a language and an artist to tune the search.")
     else:
         query = f"{lang} {st.session_state['emotion']} song {singer}"
-        url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
-        st.success(f"🔎 Searching on YouTube for: **{query}**")
-        st.markdown(f"[▶️ Open results on YouTube]({url})")
-
-        # Reset emotion and restart webcam automatically
+        url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+        st.markdown(
+            f'<div class="result">'
+            f'<div class="query">Tuned for <strong>{query}</strong></div>'
+            f'<a href="{url}" target="_blank">Open results on YouTube</a>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         np.save("emotion.npy", np.array([""]))
         st.session_state["emotion"] = ""
-        st.session_state["run"] = True
+
+
+st.markdown(
+    '<div class="footer">© 2026 <span class="brand">etunes</span> — Music tuned to feeling.</div>',
+    unsafe_allow_html=True,
+)
