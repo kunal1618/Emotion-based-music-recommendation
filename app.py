@@ -30,7 +30,10 @@ def get_spotify_client():
     except (KeyError, FileNotFoundError):
         return None, None
 
-    token_info = oauth.get_cached_token()
+    try:
+        token_info = oauth.get_cached_token()
+    except Exception:
+        return None, oauth
 
     if not token_info:
         code = st.query_params.get("code")
@@ -203,13 +206,13 @@ html, body, [class*="css"] {
 [data-testid="stIFrame"] iframe,
 section.main iframe[title*="webrtc"],
 section.main iframe[title*="streamlit"] {
-    width: 360px !important;
-    height: 360px !important;
-    border-radius: 50% !important;
-    clip-path: circle(48% at 50% 50%);
+    width: 480px !important;
+    height: 460px !important;
+    max-width: 90vw !important;
     box-shadow:
         0 25px 60px -15px rgba(155, 111, 232, 0.35),
         0 0 0 1px rgba(255, 255, 255, 0.6);
+    border-radius: 16px !important;
     background: linear-gradient(135deg, #e9defc 0%, #fce4d6 100%);
 }
 
@@ -539,6 +542,13 @@ webrtc_streamer(
     desired_playing_state=True,
     video_processor_factory=EmotionProcessor,
     media_stream_constraints={"video": True, "audio": False},
+    rtc_configuration={
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+        ]
+    },
+    async_processing=True,
 )
 
 st.markdown(
@@ -585,6 +595,30 @@ with col2:
     singer = st.text_input("Artist", placeholder="Arijit Singh, Adele…")
 
 
+selected_device = None
+if sp is not None:
+    try:
+        device_list = sp.devices().get("devices", [])
+    except Exception:
+        device_list = []
+
+    if device_list:
+        default_idx = next(
+            (i for i, d in enumerate(device_list)
+             if d["type"].lower() == "smartphone" or "phone" in d["name"].lower()),
+            0,
+        )
+        selected_idx = st.selectbox(
+            "Play on",
+            range(len(device_list)),
+            format_func=lambda i: f"{device_list[i]['name']} · {device_list[i]['type'].lower()}",
+            index=default_idx,
+        )
+        selected_device = device_list[selected_idx]
+    else:
+        st.caption("No active Spotify device. Open Spotify on your phone and play any track for 2 seconds, then refresh this page.")
+
+
 if st.button("Read my mood and recommend"):
     if not st.session_state["emotion"]:
         st.warning("No mood captured yet. Hold the camera for a moment until your mood appears above.")
@@ -610,28 +644,26 @@ if st.button("Read my mood and recommend"):
             tracks = results.get("tracks", {}).get("items", [])
             if not tracks:
                 st.warning(f"No tracks found for {query}. Try a different artist or language.")
+            elif selected_device is None:
+                st.warning("No active Spotify device. Open Spotify on your phone and play any track for 2 seconds so it registers, then refresh this page.")
             else:
-                devices = sp.devices().get("devices", [])
-                if not devices:
-                    st.warning("Please open Spotify on your phone or desktop first, play any track briefly so the device shows up, then click again.")
-                else:
-                    track = tracks[0]
-                    sp.start_playback(device_id=devices[0]["id"], uris=[track["uri"]])
-                    art = track["album"]["images"][0]["url"] if track["album"].get("images") else ""
-                    artists = ", ".join(a["name"] for a in track["artists"])
-                    st.markdown(
-                        f'<div class="result spotify-now">'
-                        f'<img src="{art}" alt="" class="album-art">'
-                        f'<div class="now-meta">'
-                        f'<div class="now-label">Now playing on {devices[0]["name"]}</div>'
-                        f'<div class="now-track">{track["name"]}</div>'
-                        f'<div class="now-artist">{artists}</div>'
-                        f'</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                    np.save("emotion.npy", np.array([""]))
-                    st.session_state["emotion"] = ""
+                track = tracks[0]
+                sp.start_playback(device_id=selected_device["id"], uris=[track["uri"]])
+                art = track["album"]["images"][0]["url"] if track["album"].get("images") else ""
+                artists = ", ".join(a["name"] for a in track["artists"])
+                st.markdown(
+                    f'<div class="result spotify-now">'
+                    f'<img src="{art}" alt="" class="album-art">'
+                    f'<div class="now-meta">'
+                    f'<div class="now-label">Now playing on {selected_device["name"]}</div>'
+                    f'<div class="now-track">{track["name"]}</div>'
+                    f'<div class="now-artist">{artists}</div>'
+                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                np.save("emotion.npy", np.array([""]))
+                st.session_state["emotion"] = ""
         except spotipy.SpotifyException as e:
             if e.http_status == 403:
                 st.error("Spotify Premium is required to control playback. Upgrade your account or use the listening account that has Premium.")
