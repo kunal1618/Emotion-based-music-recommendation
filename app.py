@@ -194,66 +194,23 @@ html, body, [class*="css"] {
     letter-spacing: -0.02em;
 }
 
-[data-testid="stIFrame"],
-.element-container:has(iframe),
-div[class*="stCustomComponent"] {
+[data-testid="stIFrame"] {
     display: flex !important;
     justify-content: center !important;
-    align-items: center !important;
-    width: 100% !important;
-    margin: 1.25rem auto 0.5rem auto !important;
+    margin: 1rem 0 0.5rem 0;
 }
 
 [data-testid="stIFrame"] iframe,
 section.main iframe[title*="webrtc"],
-section.main iframe[title*="streamlit"],
-.element-container iframe {
-    width: 420px !important;
-    height: 315px !important;
-    max-width: 90vw !important;
-    clip-path: circle(closest-side at 50% 50%) !important;
+section.main iframe[title*="streamlit"] {
+    width: 360px !important;
+    height: 360px !important;
+    border-radius: 50% !important;
+    clip-path: circle(48% at 50% 50%);
     box-shadow:
         0 25px 60px -15px rgba(155, 111, 232, 0.35),
-        0 0 0 1px rgba(255, 255, 255, 0.6) !important;
-    background: transparent !important;
-    border: none !important;
-    display: block !important;
-    margin: 0 auto !important;
-    object-fit: cover !important;
-}
-
-@media (max-width: 480px) {
-    [data-testid="stIFrame"] iframe,
-    section.main iframe[title*="webrtc"],
-    section.main iframe[title*="streamlit"],
-    .element-container iframe {
-        width: 88vw !important;
-        height: 66vw !important;
-    }
-}
-
-@media (max-width: 600px) {
-    .block-container {
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-        padding-top: 1.5rem !important;
-    }
-    .hero {
-        font-size: 2.1rem !important;
-    }
-    .section-title {
-        font-size: 1.4rem !important;
-    }
-    .subtitle {
-        font-size: 0.92rem;
-    }
-    .album-art {
-        width: 56px;
-        height: 56px;
-    }
-    .now-track {
-        font-size: 1rem;
-    }
+        0 0 0 1px rgba(255, 255, 255, 0.6);
+    background: linear-gradient(135deg, #e9defc 0%, #fce4d6 100%);
 }
 
 .cam-hint {
