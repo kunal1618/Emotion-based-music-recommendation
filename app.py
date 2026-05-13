@@ -1,11 +1,50 @@
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer
+from streamlit_autorefresh import st_autorefresh
 import av
 import cv2
 import numpy as np
 import mediapipe as mp
 from keras.models import load_model
-from urllib.parse import quote_plus
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+
+
+SPOTIFY_SCOPES = "user-modify-playback-state user-read-playback-state"
+
+
+def get_spotify_oauth():
+    return SpotifyOAuth(
+        client_id=st.secrets["spotify"]["client_id"],
+        client_secret=st.secrets["spotify"]["client_secret"],
+        redirect_uri=st.secrets["spotify"]["redirect_uri"],
+        scope=SPOTIFY_SCOPES,
+        cache_path=".cache",
+        open_browser=False,
+    )
+
+
+def get_spotify_client():
+    try:
+        oauth = get_spotify_oauth()
+    except (KeyError, FileNotFoundError):
+        return None, None
+
+    token_info = oauth.get_cached_token()
+
+    if not token_info:
+        code = st.query_params.get("code")
+        if code:
+            try:
+                token_info = oauth.get_access_token(code, as_dict=True, check_cache=False)
+                st.query_params.clear()
+            except Exception:
+                token_info = None
+
+    if not token_info:
+        return None, oauth
+
+    return spotipy.Spotify(auth_manager=oauth), oauth
 
 
 st.set_page_config(
@@ -315,6 +354,78 @@ section.main iframe[title*="streamlit"] {
     font-size: 0.9rem !important;
 }
 
+.auth-status {
+    text-align: center;
+    color: #6e6e6e;
+    font-size: 0.82rem;
+    margin: -1.75rem 0 1.5rem 0;
+}
+
+.auth-status strong {
+    color: #1f1f1f;
+    font-weight: 500;
+}
+
+.auth-status .dotg {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #1db954;
+    margin-right: 0.4rem;
+    vertical-align: middle;
+}
+
+.spotify-now {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    text-align: left;
+}
+
+.album-art {
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.now-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.now-label {
+    font-size: 0.7rem;
+    color: #9b6fe8;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.now-track {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: #1f1f1f;
+    line-height: 1.2;
+    margin-bottom: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.now-artist {
+    font-size: 0.88rem;
+    color: #6e6e6e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .footer {
     text-align: center;
     color: #a0a0a0;
@@ -345,6 +456,21 @@ st.markdown(
     '<div class="wordmark"><span class="dot"></span>etunes</div>',
     unsafe_allow_html=True,
 )
+
+sp, oauth = get_spotify_client()
+if sp is not None and "spotify_display_name" not in st.session_state:
+    try:
+        me = sp.current_user()
+        st.session_state["spotify_display_name"] = me.get("display_name") or me.get("id")
+    except Exception:
+        st.session_state["spotify_display_name"] = None
+
+display_name = st.session_state.get("spotify_display_name")
+if sp is not None and display_name:
+    st.markdown(
+        f'<div class="auth-status"><span class="dotg"></span>Connected to Spotify as <strong>{display_name}</strong></div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown(
     '<div style="text-align:center;"><span class="badge">Music that meets you where you are</span></div>',
@@ -421,6 +547,9 @@ st.markdown(
 )
 
 
+if not st.session_state["emotion"]:
+    st_autorefresh(interval=800, key="mood_poll", limit=150)
+
 try:
     latest = str(np.load("emotion.npy")[0])
     if latest:
@@ -461,18 +590,55 @@ if st.button("Read my mood and recommend"):
         st.warning("No mood captured yet. Hold the camera for a moment until your mood appears above.")
     elif not lang or not singer:
         st.warning("Please add both a language and an artist to tune the search.")
+    elif sp is None:
+        if oauth is None:
+            st.error("Spotify credentials are missing. Open `.streamlit/secrets.toml` and paste your Client ID and Secret from the Spotify Developer Dashboard.")
+        else:
+            auth_url = oauth.get_authorize_url()
+            st.markdown(
+                f'<div class="result">'
+                f'<div class="query">First, connect your Spotify account.</div>'
+                f'<a href="{auth_url}" target="_self">Log in with Spotify</a>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
     else:
-        query = f"{lang} {st.session_state['emotion']} song {singer}"
-        url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-        st.markdown(
-            f'<div class="result">'
-            f'<div class="query">Tuned for <strong>{query}</strong></div>'
-            f'<a href="{url}" target="_blank">Open results on YouTube</a>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-        np.save("emotion.npy", np.array([""]))
-        st.session_state["emotion"] = ""
+        emotion = st.session_state["emotion"]
+        query = f"{lang} {emotion} {singer}"
+        try:
+            results = sp.search(q=query, type="track", limit=5)
+            tracks = results.get("tracks", {}).get("items", [])
+            if not tracks:
+                st.warning(f"No tracks found for {query}. Try a different artist or language.")
+            else:
+                devices = sp.devices().get("devices", [])
+                if not devices:
+                    st.warning("Please open Spotify on your phone or desktop first, play any track briefly so the device shows up, then click again.")
+                else:
+                    track = tracks[0]
+                    sp.start_playback(device_id=devices[0]["id"], uris=[track["uri"]])
+                    art = track["album"]["images"][0]["url"] if track["album"].get("images") else ""
+                    artists = ", ".join(a["name"] for a in track["artists"])
+                    st.markdown(
+                        f'<div class="result spotify-now">'
+                        f'<img src="{art}" alt="" class="album-art">'
+                        f'<div class="now-meta">'
+                        f'<div class="now-label">Now playing on {devices[0]["name"]}</div>'
+                        f'<div class="now-track">{track["name"]}</div>'
+                        f'<div class="now-artist">{artists}</div>'
+                        f'</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                    np.save("emotion.npy", np.array([""]))
+                    st.session_state["emotion"] = ""
+        except spotipy.SpotifyException as e:
+            if e.http_status == 403:
+                st.error("Spotify Premium is required to control playback. Upgrade your account or use the listening account that has Premium.")
+            elif e.http_status == 404:
+                st.error("Couldn't find an active Spotify device. Open Spotify and play any track briefly so the device registers, then try again.")
+            else:
+                st.error(f"Spotify error: {e.msg}")
 
 
 st.markdown(
